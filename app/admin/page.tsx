@@ -1,66 +1,45 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
 import { ArrowLeft, Settings, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import type { User, Game, Court, Config } from "../../types/database"
 import { updateConfig, updateCourt, updateUser, getAllUsers } from "../../lib/supabase/queries"
-import { autoLogin } from "../../lib/supabase/auth"
 
-export default function AdminPage() {
-  const router = useRouter()
-  const [loading, setLoading] = useState(true)
-  const [updateLoading, setUpdateLoading] = useState<{ [key: string]: boolean }>({})
+interface AdminPageProps {
+  onBack: () => void
+  config: Config
+  courts: Court[]
+  playingGames: Game[]
+  waitingGames: Game[]
+  onConfigUpdate: (config: Config) => void
+  onCourtsUpdate: (courts: Court[]) => void
+}
+
+export default function AdminPage({
+  onBack,
+  config,
+  courts,
+  playingGames,
+  waitingGames,
+  onConfigUpdate,
+  onCourtsUpdate,
+}: AdminPageProps) {
+  const [loading, setLoading] = useState<{ [key: string]: boolean }>({})
   const [allUsers, setAllUsers] = useState<User[]>([])
-  const [config, setConfig] = useState<Config | null>(null)
-  const [courts, setCourts] = useState<Court[]>([])
-  const [playingGames, setPlayingGames] = useState<Game[]>([])
-  const [waitingGames, setWaitingGames] = useState<Game[]>([])
-  const [currentUser, setCurrentUser] = useState<User | null>(null)
 
   useEffect(() => {
-    loadData()
+    loadAllUsers()
   }, [])
 
-  const loadData = async () => {
+  const loadAllUsers = async () => {
     try {
-      // 현재 사용자가 관리자인지 확인
-      const user = await autoLogin()
-      if (!user || !user.admin_authority) {
-        router.push("/")
-        return
-      }
-      setCurrentUser(user)
-
-      // 모든 데이터 로드
       const usersData = await getAllUsers()
       setAllUsers(usersData)
-
-      // 기본 설정값 설정
-      setConfig({
-        id: 1,
-        show_sex: true,
-        show_skill: true,
-        enable_vs: true,
-        enable_undo_game_by_user: false,
-        enable_change_game_by_user: false,
-        enable_add_user_auto: false,
-      })
-
-      // 기본 코트 설정
-      setCourts([
-        { id: 1, name: "코트 1", is_active: true },
-        { id: 2, name: "코트 2", is_active: true },
-        { id: 3, name: "코트 3", is_active: false },
-      ])
-    } catch (error) {
-      console.error("데이터 로드 오류:", error)
-      router.push("/")
-    } finally {
-      setLoading(false)
+    } catch (err) {
+      console.error("전체 사용자 로드 오류:", err)
     }
   }
 
@@ -70,37 +49,35 @@ export default function AdminPage() {
   const pendingUsers = allUsers.filter((user) => !user.is_active)
 
   const handleConfigUpdate = async (key: keyof Config, value: boolean) => {
-    if (!config) return
-
     try {
-      setUpdateLoading((prev) => ({ ...prev, [key]: true }))
+      setLoading((prev) => ({ ...prev, [key]: true }))
       const updatedConfig = await updateConfig({ [key]: value })
-      setConfig(updatedConfig)
+      onConfigUpdate(updatedConfig)
     } catch (error) {
       console.error("설정 업데이트 오류:", error)
       alert("설정 업데이트 중 오류가 발생했습니다.")
     } finally {
-      setUpdateLoading((prev) => ({ ...prev, [key]: false }))
+      setLoading((prev) => ({ ...prev, [key]: false }))
     }
   }
 
   const handleCourtUpdate = async (courtId: number, isActive: boolean) => {
     try {
-      setUpdateLoading((prev) => ({ ...prev, [`court_${courtId}`]: true }))
+      setLoading((prev) => ({ ...prev, [`court_${courtId}`]: true }))
       const updatedCourt = await updateCourt(courtId, isActive)
       const updatedCourts = courts.map((court) => (court.id === courtId ? updatedCourt : court))
-      setCourts(updatedCourts)
+      onCourtsUpdate(updatedCourts)
     } catch (error) {
       console.error("코트 업데이트 오류:", error)
       alert("코트 설정 업데이트 중 오류가 발생했습니다.")
     } finally {
-      setUpdateLoading((prev) => ({ ...prev, [`court_${courtId}`]: false }))
+      setLoading((prev) => ({ ...prev, [`court_${courtId}`]: false }))
     }
   }
 
   const handleUserApproval = async (userId: number, approve: boolean) => {
     try {
-      setUpdateLoading((prev) => ({ ...prev, [`user_${userId}`]: true }))
+      setLoading((prev) => ({ ...prev, [`user_${userId}`]: true }))
 
       // 승인할 때는 is_active와 is_attendance를 모두 true로 설정
       const updateData = approve ? { is_active: true, is_attendance: true } : { is_active: false }
@@ -112,38 +89,15 @@ export default function AdminPage() {
       console.error("사용자 승인 오류:", error)
       alert("사용자 승인 중 오류가 발생했습니다.")
     } finally {
-      setUpdateLoading((prev) => ({ ...prev, [`user_${userId}`]: false }))
+      setLoading((prev) => ({ ...prev, [`user_${userId}`]: false }))
     }
-  }
-
-  const handleBack = () => {
-    router.push("/")
-  }
-
-  if (loading) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-gray-50 max-w-md mx-auto">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-          <p className="text-gray-600">로딩 중...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!currentUser || !config) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-gray-50 max-w-md mx-auto">
-        <p className="text-gray-600">관리자 권한이 필요합니다.</p>
-      </div>
-    )
   }
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 max-w-md mx-auto">
       {/* Header */}
       <div className="bg-white shadow-sm border-b px-4 py-3 flex items-center">
-        <Button variant="ghost" size="icon" onClick={handleBack} className="mr-2">
+        <Button variant="ghost" size="icon" onClick={onBack} className="mr-2">
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <h1 className="text-xl font-bold text-gray-900">관리자 페이지</h1>
@@ -192,7 +146,7 @@ export default function AdminPage() {
               <Switch
                 checked={config.show_sex}
                 onCheckedChange={(checked) => handleConfigUpdate("show_sex", checked)}
-                disabled={updateLoading.show_sex}
+                disabled={loading.show_sex}
               />
             </div>
 
@@ -204,7 +158,7 @@ export default function AdminPage() {
               <Switch
                 checked={config.show_skill}
                 onCheckedChange={(checked) => handleConfigUpdate("show_skill", checked)}
-                disabled={updateLoading.show_skill}
+                disabled={loading.show_skill}
               />
             </div>
 
@@ -216,7 +170,7 @@ export default function AdminPage() {
               <Switch
                 checked={config.enable_vs}
                 onCheckedChange={(checked) => handleConfigUpdate("enable_vs", checked)}
-                disabled={updateLoading.enable_vs}
+                disabled={loading.enable_vs}
               />
             </div>
 
@@ -228,7 +182,7 @@ export default function AdminPage() {
               <Switch
                 checked={config.enable_undo_game_by_user}
                 onCheckedChange={(checked) => handleConfigUpdate("enable_undo_game_by_user", checked)}
-                disabled={updateLoading.enable_undo_game_by_user}
+                disabled={loading.enable_undo_game_by_user}
               />
             </div>
 
@@ -240,7 +194,7 @@ export default function AdminPage() {
               <Switch
                 checked={config.enable_change_game_by_user}
                 onCheckedChange={(checked) => handleConfigUpdate("enable_change_game_by_user", checked)}
-                disabled={updateLoading.enable_change_game_by_user}
+                disabled={loading.enable_change_game_by_user}
               />
             </div>
 
@@ -252,7 +206,7 @@ export default function AdminPage() {
               <Switch
                 checked={config.enable_add_user_auto}
                 onCheckedChange={(checked) => handleConfigUpdate("enable_add_user_auto", checked)}
-                disabled={updateLoading.enable_add_user_auto}
+                disabled={loading.enable_add_user_auto}
               />
             </div>
           </div>
@@ -268,7 +222,7 @@ export default function AdminPage() {
                 <Switch
                   checked={court.is_active}
                   onCheckedChange={(checked) => handleCourtUpdate(court.id, checked)}
-                  disabled={updateLoading[`court_${court.id}`]}
+                  disabled={loading[`court_${court.id}`]}
                 />
               </div>
             ))}
@@ -298,16 +252,16 @@ export default function AdminPage() {
                       size="sm"
                       variant="outline"
                       onClick={() => handleUserApproval(user.id, false)}
-                      disabled={updateLoading[`user_${user.id}`]}
+                      disabled={loading[`user_${user.id}`]}
                     >
                       거절
                     </Button>
                     <Button
                       size="sm"
                       onClick={() => handleUserApproval(user.id, true)}
-                      disabled={updateLoading[`user_${user.id}`]}
+                      disabled={loading[`user_${user.id}`]}
                     >
-                      {updateLoading[`user_${user.id}`] ? "처리 중..." : "승인"}
+                      {loading[`user_${user.id}`] ? "처리 중..." : "승인"}
                     </Button>
                   </div>
                 </div>
@@ -320,4 +274,5 @@ export default function AdminPage() {
   )
 }
 
+// 이 페이지는 동적으로 렌더링되어야 함 (환경 변수 필요)
 export const dynamic = "force-dynamic"
