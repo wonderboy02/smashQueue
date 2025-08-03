@@ -1,154 +1,79 @@
 "use client"
 
-import { useState } from "react"
-import { ArrowLeft, Shuffle } from "lucide-react"
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { ArrowLeft, Play, Shuffle } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { User, Game, Config } from "../../types/database"
+import { autoLogin } from "../../lib/supabase/auth"
+import { getReadyUsers, getConfig, getGamesByStatus, createGame } from "../../lib/supabase/queries"
 
-interface GameMakingProps {
-  onBack: () => void
-  onAddToQueue: (users: User[], team1?: User[], team2?: User[]) => void
-  users: User[]
-  config: Config
-  playingGames: Game[]
-  waitingGames: Game[]
-  getUserDisplayName: (user: User) => string
-  getUserTokenStyle: (user: User) => string
-}
-
-const skillMapping = {
-  A: "고수",
-  B: "중수",
-  C: "초보",
-}
-
-export default function GameMaking({
-  onBack,
-  onAddToQueue,
-  users,
-  config,
-  playingGames,
-  waitingGames,
-  getUserDisplayName: getUserDisplayNameProp,
-  getUserTokenStyle,
-}: GameMakingProps) {
+export default function GameMaking() {
+  const router = useRouter()
+  const [loading, setLoading] = useState(true)
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [config, setConfig] = useState<Config | null>(null)
+  const [users, setUsers] = useState<User[]>([])
+  const [playingGames, setPlayingGames] = useState<Game[]>([])
+  const [waitingGames, setWaitingGames] = useState<Game[]>([])
   const [selectedUsers, setSelectedUsers] = useState<User[]>([])
   const [team1, setTeam1] = useState<User[]>([])
   const [team2, setTeam2] = useState<User[]>([])
 
-  // config가 없을 때 기본값 사용 (빌드 시 안전성 확보)
-  const safeConfig = config || {
-    enable_vs: false,
-    show_skill: false,
-    show_sex: false,
-    enable_undo_game_by_user: false,
-    enable_change_game_by_user: false,
-    enable_add_user_auto: false,
-  }
+  useEffect(() => {
+    checkAuthAndLoadData()
+  }, [])
 
-  const toggleUser = (user: User) => {
-    // ready 상태가 아닌 사용자는 선택할 수 없음
-    if (user.user_status !== "ready" || !user.is_active || !user.is_attendance) return
+  const checkAuthAndLoadData = async () => {
+    try {
+      setLoading(true)
 
-    if (safeConfig.enable_vs) {
-      // VS 모드일 때
-      if (team1.some((u) => u.id === user.id)) {
-        setTeam1((prev) => prev.filter((u) => u.id !== user.id))
-      } else if (team2.some((u) => u.id === user.id)) {
-        setTeam2((prev) => prev.filter((u) => u.id !== user.id))
-      } else if (team1.length < 2) {
-        setTeam1((prev) => [...prev, user])
-      } else if (team2.length < 2) {
-        setTeam2((prev) => [...prev, user])
+      // 인증 확인
+      const user = await autoLogin()
+      if (!user) {
+        router.push("/")
+        return
       }
-    } else {
-      // 일반 모드일 때
-      setSelectedUsers((prev) => {
-        const isSelected = prev.some((u) => u.id === user.id)
-        if (isSelected) {
-          return prev.filter((u) => u.id !== user.id)
-        } else if (prev.length < 4) {
-          return [...prev, user]
-        }
-        return prev
-      })
+
+      setCurrentUser(user)
+
+      // 데이터 로드
+      const [configData, usersData, playingData, waitingData] = await Promise.all([
+        getConfig(),
+        getReadyUsers(),
+        getGamesByStatus("playing"),
+        getGamesByStatus("waiting"),
+      ])
+
+      setConfig(configData)
+      setUsers(usersData)
+      setPlayingGames(playingData)
+      setWaitingGames(waitingData)
+    } catch (error) {
+      console.error("Game making page load error:", error)
+      router.push("/")
+    } finally {
+      setLoading(false)
     }
-  }
-
-  const shuffleTeams = () => {
-    if (safeConfig.enable_vs && team1.length === 2 && team2.length === 2) {
-      const allUsers = [...team1, ...team2]
-      const shuffled = [...allUsers].sort(() => Math.random() - 0.5)
-      setTeam1(shuffled.slice(0, 2))
-      setTeam2(shuffled.slice(2, 4))
-    }
-  }
-
-  const handleAddToQueue = () => {
-    if (safeConfig.enable_vs) {
-      if (team1.length === 2 && team2.length === 2) {
-        onAddToQueue([...team1, ...team2], team1, team2)
-      }
-    } else {
-      if (selectedUsers.length === 4) {
-        onAddToQueue(selectedUsers)
-      }
-    }
-  }
-
-  const isUserSelected = (user: User) => {
-    if (safeConfig.enable_vs) {
-      return team1.some((u) => u.id === user.id) || team2.some((u) => u.id === user.id)
-    }
-    return selectedUsers.some((u) => u.id === user.id)
-  }
-
-  const isUserDisabled = (user: User) => {
-    return user.user_status !== "ready" || !user.is_active || !user.is_attendance
-  }
-
-  const getUserDisabledReason = (user: User) => {
-    if (!user.is_active) return "비활성"
-    if (!user.is_attendance) return "미출석"
-    if (user.user_status === "gaming") return "게임 중"
-    if (user.user_status === "waiting") return "대기열"
-    return ""
-  }
-
-  const canAddToQueue = safeConfig.enable_vs ? team1.length === 2 && team2.length === 2 : selectedUsers.length === 4
-
-  // 출석한 사용자 필터링
-  const attendingUsers = users.filter((user) => user.is_attendance && user.is_active)
-
-  // 게스트 사용자를 위한 스타일 (이름만 흐리게)
-  const getGuestTokenContent = (user: User) => {
-    const baseDisplayName = safeConfig?.show_skill
-      ? `${user.name}(${skillMapping[user.skill as keyof typeof skillMapping]})`
-      : user.name
-
-    if (user.is_guest) {
-      return (
-        <>
-          {baseDisplayName}
-          <span className="opacity-50 text-xs ml-1">guest</span>
-        </>
-      )
-    }
-
-    return baseDisplayName
   }
 
   const getUserDisplayName = (user: User) => {
-    if (!safeConfig) return user.name
+    if (!config) return user.name
+
+    const skillMapping = {
+      A: "고수",
+      B: "중수",
+      C: "초보",
+    }
 
     let displayName = user.name
 
-    if (safeConfig.show_skill) {
+    if (config.show_skill) {
       displayName = `${user.name}(${skillMapping[user.skill]})`
     }
 
-    // 게스트인 경우 이름 뒤에 작은 guest 텍스트 추가
     if (user.is_guest) {
       displayName += " guest"
     }
@@ -156,149 +81,277 @@ export default function GameMaking({
     return displayName
   }
 
-  // showSex 설정 시 성별에 따른 은은한 색상 표시
-  const getUserCardStyle = (user: User) => {
-    let baseStyle = "p-3 cursor-pointer transition-all text-center "
+  const getUserTokenStyle = (user: User) => {
+    if (!config) return "px-2 py-1 rounded text-sm bg-gray-100 text-gray-800"
 
-    if (isUserDisabled(user)) {
-      baseStyle += "bg-gray-100 text-gray-400 cursor-not-allowed"
-    } else if (isUserSelected(user)) {
-      if (safeConfig.show_sex) {
-        baseStyle +=
-          user.sex === "M" ? "bg-blue-100 border-blue-300 text-blue-800" : "bg-pink-100 border-pink-300 text-pink-800"
+    let baseStyle = "px-2 py-1 rounded text-sm "
+
+    if (config.show_sex) {
+      if (user.sex === "M") {
+        baseStyle += "bg-blue-100 text-blue-800 "
       } else {
-        baseStyle += "bg-blue-100 border-blue-300 text-blue-800"
+        baseStyle += "bg-pink-100 text-pink-800 "
       }
     } else {
-      // 선택되지 않았을 때도 showSex가 true면 은은한 색상 표시
-      if (safeConfig.show_sex) {
-        baseStyle +=
-          user.sex === "M"
-            ? "bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700"
-            : "bg-pink-50 hover:bg-pink-100 border-pink-200 text-pink-700"
-      } else {
-        baseStyle += "bg-white hover:bg-gray-50 border-gray-200"
-      }
+      baseStyle += "bg-gray-100 text-gray-800 "
     }
 
     return baseStyle
   }
 
+  const handleUserSelect = (user: User) => {
+    if (selectedUsers.find((u) => u.id === user.id)) {
+      setSelectedUsers(selectedUsers.filter((u) => u.id !== user.id))
+    } else if (selectedUsers.length < 4) {
+      setSelectedUsers([...selectedUsers, user])
+    }
+  }
+
+  const handleTeamSelect = (user: User, team: 1 | 2) => {
+    if (team === 1) {
+      if (team1.find((u) => u.id === user.id)) {
+        setTeam1(team1.filter((u) => u.id !== user.id))
+      } else if (team1.length < 2) {
+        setTeam1([...team1, user])
+        setTeam2(team2.filter((u) => u.id !== user.id))
+      }
+    } else {
+      if (team2.find((u) => u.id === user.id)) {
+        setTeam2(team2.filter((u) => u.id !== user.id))
+      } else if (team2.length < 2) {
+        setTeam2([...team2, user])
+        setTeam1(team1.filter((u) => u.id !== user.id))
+      }
+    }
+  }
+
+  const handleRandomSelect = () => {
+    const availableUsers = users.filter(
+      (user) =>
+        !playingGames.some((game) => game.users.some((u) => u.id === user.id)) &&
+        !waitingGames.some((game) => game.users.some((u) => u.id === user.id)),
+    )
+
+    if (availableUsers.length >= 4) {
+      const shuffled = [...availableUsers].sort(() => Math.random() - 0.5)
+      setSelectedUsers(shuffled.slice(0, 4))
+    }
+  }
+
+  const handleAddToQueue = async () => {
+    if (selectedUsers.length !== 4) return
+
+    try {
+      const result = await createGame({
+        status: "waiting",
+        userIds: selectedUsers.map((user) => user.id),
+      })
+
+      if (result.autoStarted) {
+        alert("빈 코트가 있어서 바로 게임이 시작되었습니다!")
+      } else {
+        alert("대기열에 추가되었습니다!")
+      }
+
+      router.push("/")
+    } catch (error) {
+      console.error("Add to queue error:", error)
+      alert("게임 생성 중 오류가 발생했습니다.")
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50 max-w-md mx-auto">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+          <p className="text-gray-600">로딩 중...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!currentUser || !config) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50 max-w-md mx-auto">
+        <p className="text-gray-600">데이터를 불러올 수 없습니다.</p>
+      </div>
+    )
+  }
+
+  const availableUsers = users.filter(
+    (user) =>
+      !playingGames.some((game) => game.users.some((u) => u.id === user.id)) &&
+      !waitingGames.some((game) => game.users.some((u) => u.id === user.id)),
+  )
+
   return (
     <div className="h-screen flex flex-col bg-gray-50 max-w-md mx-auto">
       {/* Header */}
-      <div className="bg-white shadow-sm border-b px-4 py-3 flex items-center">
-        <Button variant="ghost" size="icon" onClick={onBack} className="mr-2">
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <h1 className="text-xl font-bold text-gray-900">게임 짜기</h1>
-        {safeConfig.enable_vs && (
-          <Button variant="ghost" size="icon" onClick={shuffleTeams} className="ml-auto">
-            <Shuffle className="h-4 w-4" />
+      <div className="bg-white shadow-sm border-b px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={() => router.push("/")} className="h-8 w-8">
+            <ArrowLeft className="h-4 w-4" />
           </Button>
-        )}
-      </div>
-
-      {/* Selected Players */}
-      <div className="bg-white px-4 py-4 border-b">
-        {safeConfig.enable_vs ? (
-          <div className="flex items-center justify-between gap-4">
-            {/* 좌측 팀 */}
-            <div className="flex-1">
-              <h3 className="text-sm font-medium text-gray-600 mb-2 text-center">좌측 ({team1.length}/2)</h3>
-              <div className="flex flex-col gap-2 min-h-[64px]">
-                {team1.map((user) => (
-                  <div
-                    key={user.id}
-                    className={getUserTokenStyle(user) + " cursor-pointer text-center"}
-                    onClick={() => toggleUser(user)}
-                  >
-                    {getGuestTokenContent(user)}
-                  </div>
-                ))}
-                {team1.length === 0 && (
-                  <p className="text-gray-400 text-xs text-center">좌측 플레이어를 선택해주세요</p>
-                )}
-              </div>
-            </div>
-
-            {/* VS 표시 */}
-            <div className="flex items-center justify-center px-2">
-              <div className="text-sm font-medium text-gray-500">VS</div>
-            </div>
-
-            {/* 우측 팀 */}
-            <div className="flex-1">
-              <h3 className="text-sm font-medium text-gray-600 mb-2 text-center">우측 ({team2.length}/2)</h3>
-              <div className="flex flex-col gap-2 min-h-[64px]">
-                {team2.map((user) => (
-                  <div
-                    key={user.id}
-                    className={getUserTokenStyle(user) + " cursor-pointer text-center"}
-                    onClick={() => toggleUser(user)}
-                  >
-                    {getGuestTokenContent(user)}
-                  </div>
-                ))}
-                {team2.length === 0 && (
-                  <p className="text-gray-400 text-xs text-center">우측 플레이어를 선택해주세요</p>
-                )}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div>
-            <h2 className="text-sm font-medium text-gray-600 mb-3">선택된 플레이어 ({selectedUsers.length}/4)</h2>
-            <div className="flex flex-wrap gap-2 min-h-[40px]">
-              {selectedUsers.map((user) => (
-                <div
-                  key={user.id}
-                  className={getUserTokenStyle(user) + " cursor-pointer"}
-                  onClick={() => toggleUser(user)}
-                >
-                  {getGuestTokenContent(user)}
-                </div>
-              ))}
-              {selectedUsers.length === 0 && <p className="text-gray-400 text-sm">플레이어를 선택해주세요</p>}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Player List */}
-      <div className="flex-1 px-4 py-4 overflow-y-auto">
-        <h2 className="text-lg font-semibold text-gray-900 mb-3">출석한 회원 ({attendingUsers.length}명)</h2>
-        <div className="grid grid-cols-2 gap-3">
-          {attendingUsers.map((user) => (
-            <Card key={user.id} className={getUserCardStyle(user)} onClick={() => toggleUser(user)}>
-              <div className="flex items-center justify-between">
-                <div className="text-xs font-medium flex-1">{getGuestTokenContent(user)}</div>
-                {isUserDisabled(user) && (
-                  <div className="text-xs text-gray-500 ml-2">{getUserDisabledReason(user)}</div>
-                )}
-              </div>
-            </Card>
-          ))}
+          <h1 className="text-xl font-bold text-gray-900">게임 짜기</h1>
         </div>
+        <Button variant="ghost" size="icon" onClick={handleRandomSelect} className="h-8 w-8">
+          <Shuffle className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-hidden">
+        <Tabs defaultValue="simple" className="h-full flex flex-col">
+          <TabsList className="grid w-full grid-cols-2 mx-4 mt-4">
+            <TabsTrigger value="simple">간단 선택</TabsTrigger>
+            <TabsTrigger value="vs" disabled={!config.enable_vs}>
+              VS 모드
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="simple" className="flex-1 p-4 overflow-y-auto">
+            <div className="space-y-4">
+              {/* Selected Users */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>선택된 플레이어 ({selectedUsers.length}/4)</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2 min-h-[60px]">
+                    {selectedUsers.map((user) => (
+                      <div
+                        key={user.id}
+                        className={getUserTokenStyle(user) + " cursor-pointer"}
+                        onClick={() => handleUserSelect(user)}
+                      >
+                        {getUserDisplayName(user)}
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Available Users */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>사용 가능한 플레이어 ({availableUsers.length}명)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2">
+                    {availableUsers.map((user) => (
+                      <div
+                        key={user.id}
+                        className={`${getUserTokenStyle(user)} cursor-pointer ${
+                          selectedUsers.find((u) => u.id === user.id) ? "ring-2 ring-blue-500" : ""
+                        }`}
+                        onClick={() => handleUserSelect(user)}
+                      >
+                        {getUserDisplayName(user)}
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="vs" className="flex-1 p-4 overflow-y-auto">
+            <div className="space-y-4">
+              {/* Team 1 */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>팀 1 ({team1.length}/2)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2 min-h-[60px]">
+                    {team1.map((user) => (
+                      <div
+                        key={user.id}
+                        className={getUserTokenStyle(user) + " cursor-pointer"}
+                        onClick={() => handleTeamSelect(user, 1)}
+                      >
+                        {getUserDisplayName(user)}
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* VS */}
+              <div className="text-center text-lg font-bold text-gray-500">VS</div>
+
+              {/* Team 2 */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>팀 2 ({team2.length}/2)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2 min-h-[60px]">
+                    {team2.map((user) => (
+                      <div
+                        key={user.id}
+                        className={getUserTokenStyle(user) + " cursor-pointer"}
+                        onClick={() => handleTeamSelect(user, 2)}
+                      >
+                        {getUserDisplayName(user)}
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Available Users */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>사용 가능한 플레이어</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2">
+                    {availableUsers.map((user) => (
+                      <div key={user.id} className="flex gap-1">
+                        <div
+                          className={`${getUserTokenStyle(user)} cursor-pointer ${
+                            team1.find((u) => u.id === user.id) ? "ring-2 ring-blue-500" : ""
+                          }`}
+                          onClick={() => handleTeamSelect(user, 1)}
+                        >
+                          {getUserDisplayName(user)}
+                        </div>
+                        <div
+                          className={`${getUserTokenStyle(user)} cursor-pointer ${
+                            team2.find((u) => u.id === user.id) ? "ring-2 ring-red-500" : ""
+                          }`}
+                          onClick={() => handleTeamSelect(user, 2)}
+                        >
+                          {getUserDisplayName(user)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Bottom Button */}
       <div className="p-4 bg-white border-t">
         <Button
-          className={`w-full py-3 text-lg font-medium ${
-            canAddToQueue ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-gray-300 text-gray-500 cursor-not-allowed"
-          }`}
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 text-lg font-medium"
           onClick={handleAddToQueue}
-          disabled={!canAddToQueue}
+          disabled={selectedUsers.length !== 4 && (team1.length !== 2 || team2.length !== 2)}
         >
-          {safeConfig.enable_vs
-            ? `대기열에 넣기 (${team1.length + team2.length}/4)`
-            : `대기열에 넣기 (${selectedUsers.length}/4)`}
+          <Play className="h-5 w-5 mr-2" />
+          대기열에 추가
         </Button>
       </div>
     </div>
   )
 }
 
-// 이 페이지는 동적으로 렌더링되어야 함 (props에 의존)
+// 동적 렌더링 강제
 export const dynamic = "force-dynamic"

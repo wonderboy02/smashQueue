@@ -1,101 +1,75 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Settings, User, Edit, LogOut } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import type { User as UserType } from "../../types/database"
-import { updateUser } from "../../lib/supabase/queries"
-import { getUserSession, logout } from "../../lib/supabase/auth"
 import { useRouter } from "next/navigation"
-
-// 이 페이지를 동적으로 렌더링하도록 설정 (정적 생성 방지)
-export const dynamic = "force-dynamic"
+import { ArrowLeft, Settings, LogOut, User } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
+import type { User as UserType } from "../../types/database"
+import { autoLogin, logout } from "../../lib/supabase/auth"
+import { updateUser } from "../../lib/supabase/queries"
 
 export default function MyPage() {
   const router = useRouter()
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [currentUser, setCurrentUser] = useState<UserType | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [isEditing, setIsEditing] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [editForm, setEditForm] = useState({
+  const [formData, setFormData] = useState({
     name: "",
     sex: "M" as "M" | "F",
-    skill: "C" as "A" | "B" | "C",
+    skill: "B" as "A" | "B" | "C",
+    is_attendance: false,
   })
 
-  const skillMapping = {
-    고수: "A" as const,
-    중수: "B" as const,
-    초보: "C" as const,
-  }
-
-  const skillReverseMapping = {
-    A: "고수",
-    B: "중수",
-    C: "초보",
-  }
-
   useEffect(() => {
-    const loadUserSession = async () => {
-      try {
-        const session = getUserSession()
-        if (!session) {
-          router.push("/auth/login")
-          return
-        }
+    checkAuth()
+  }, [])
 
-        // Convert session to User type (add password field)
-        const user: UserType = {
-          ...session,
-          password: "", // We don't store password in session
-        }
-
-        setCurrentUser(user)
-        setEditForm({
-          name: user.name,
-          sex: user.sex,
-          skill: user.skill,
-        })
-      } catch (error) {
-        console.error("Failed to load user session:", error)
-        router.push("/auth/login")
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    loadUserSession()
-  }, [router])
-
-  const handleSave = async () => {
-    if (!currentUser) return
-
+  const checkAuth = async () => {
     try {
       setLoading(true)
-      const updatedUser = await updateUser(currentUser.id, {
-        name: editForm.name,
-        sex: editForm.sex,
-        skill: editForm.skill,
+      const user = await autoLogin()
+      if (!user) {
+        router.push("/")
+        return
+      }
+      setCurrentUser(user)
+      setFormData({
+        name: user.name,
+        sex: user.sex,
+        skill: user.skill,
+        is_attendance: user.is_attendance,
       })
-      setCurrentUser(updatedUser)
-      setIsEditing(false)
     } catch (error) {
-      console.error("사용자 정보 업데이트 오류:", error)
-      alert("정보 업데이트 중 오류가 발생했습니다.")
+      console.error("Auth check error:", error)
+      router.push("/")
     } finally {
       setLoading(false)
     }
   }
 
-  const handleSkillChange = (skillText: string) => {
-    const mappedSkill = skillMapping[skillText as keyof typeof skillMapping]
-    setEditForm((prev) => ({ ...prev, skill: mappedSkill }))
+  const handleSave = async () => {
+    if (!currentUser) return
+
+    try {
+      setSaving(true)
+      const updatedUser = await updateUser(currentUser.id, formData)
+      setCurrentUser(updatedUser)
+      alert("정보가 저장되었습니다.")
+    } catch (error) {
+      console.error("Save error:", error)
+      alert("저장 중 오류가 발생했습니다.")
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const handleBack = () => {
+  const handleLogout = () => {
+    logout()
     router.push("/")
   }
 
@@ -103,31 +77,21 @@ export default function MyPage() {
     router.push("/admin")
   }
 
-  const handleLogout = () => {
-    logout()
-    router.push("/auth/login")
-  }
-
-  // 로딩 중일 때
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-50 max-w-md mx-auto">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
           <p className="text-gray-600">로딩 중...</p>
         </div>
       </div>
     )
   }
 
-  // 사용자 정보가 없을 때
   if (!currentUser) {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-50 max-w-md mx-auto">
-        <div className="text-center">
-          <p className="text-gray-600 mb-4">사용자 정보를 불러올 수 없습니다.</p>
-          <Button onClick={() => router.push("/auth/login")}>로그인 페이지로</Button>
-        </div>
+        <p className="text-gray-600">사용자 정보를 불러올 수 없습니다.</p>
       </div>
     )
   }
@@ -135,45 +99,42 @@ export default function MyPage() {
   return (
     <div className="h-screen flex flex-col bg-gray-50 max-w-md mx-auto">
       {/* Header */}
-      <div className="bg-white shadow-sm border-b px-4 py-3 flex items-center">
-        <Button variant="ghost" size="icon" onClick={handleBack} className="mr-2">
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <h1 className="text-xl font-bold text-gray-900">마이페이지</h1>
-        {!isEditing && (
-          <Button variant="ghost" size="icon" onClick={() => setIsEditing(true)} className="ml-auto">
-            <Edit className="h-4 w-4" />
+      <div className="bg-white shadow-sm border-b px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={() => router.push("/")} className="h-8 w-8">
+            <ArrowLeft className="h-4 w-4" />
           </Button>
-        )}
+          <h1 className="text-xl font-bold text-gray-900">내 정보</h1>
+        </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 px-4 py-4 overflow-y-auto space-y-4">
-        {/* 프로필 정보 */}
-        <Card className="p-4">
-          <h2 className="text-lg font-semibold mb-4 flex items-center">
-            <User className="h-5 w-5 mr-2" />
-            프로필 정보
-          </h2>
-
-          {isEditing ? (
-            <div className="space-y-4">
+      <div className="flex-1 p-4 overflow-y-auto">
+        <div className="space-y-4">
+          {/* Profile Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <User className="h-5 w-5" />
+                프로필 정보
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">이름</label>
+                <Label htmlFor="name">이름</Label>
                 <Input
-                  value={editForm.name}
-                  onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder="이름을 입력하세요"
-                  disabled={loading}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">성별</label>
+                <Label htmlFor="sex">성별</Label>
                 <Select
-                  value={editForm.sex}
-                  onValueChange={(value: "M" | "F") => setEditForm((prev) => ({ ...prev, sex: value }))}
-                  disabled={loading}
+                  value={formData.sex}
+                  onValueChange={(value: "M" | "F") => setFormData({ ...formData, sex: value })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -186,114 +147,71 @@ export default function MyPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">실력</label>
+                <Label htmlFor="skill">실력</Label>
                 <Select
-                  value={skillReverseMapping[editForm.skill]}
-                  onValueChange={handleSkillChange}
-                  disabled={loading}
+                  value={formData.skill}
+                  onValueChange={(value: "A" | "B" | "C") => setFormData({ ...formData, skill: value })}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="고수">고수</SelectItem>
-                    <SelectItem value="중수">중수</SelectItem>
-                    <SelectItem value="초보">초보</SelectItem>
+                    <SelectItem value="A">고수</SelectItem>
+                    <SelectItem value="B">중수</SelectItem>
+                    <SelectItem value="C">초보</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              <div className="flex gap-2 pt-2">
-                <Button onClick={handleSave} className="flex-1" disabled={loading}>
-                  {loading ? "저장 중..." : "저장"}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setIsEditing(false)
-                    setEditForm({
-                      name: currentUser.name,
-                      sex: currentUser.sex,
-                      skill: currentUser.skill,
-                    })
-                  }}
-                  className="flex-1"
-                  disabled={loading}
-                >
-                  취소
-                </Button>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="attendance">출석 상태</Label>
+                <Switch
+                  id="attendance"
+                  checked={formData.is_attendance}
+                  onCheckedChange={(checked) => setFormData({ ...formData, is_attendance: checked })}
+                />
               </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-gray-600">아이디</span>
-                <span className="font-medium">{currentUser.username}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">이름</span>
-                <span className="font-medium">{currentUser.name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">성별</span>
-                <span className="font-medium">{currentUser.sex === "M" ? "남성" : "여성"}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">실력</span>
-                <span className="font-medium">{skillReverseMapping[currentUser.skill]}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">상태</span>
-                <div className="flex gap-2">
-                  {currentUser.is_guest && (
-                    <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded">게스트</span>
-                  )}
-                  {currentUser.admin_authority && (
-                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">관리자</span>
-                  )}
-                  {currentUser.is_attendance && (
-                    <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">출석</span>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </Card>
-
-        {/* 관리자 메뉴 */}
-        {currentUser.admin_authority && (
-          <Card className="p-4">
-            <h2 className="text-lg font-semibold mb-3 flex items-center">
-              <Settings className="h-5 w-5 mr-2" />
-              관리자 메뉴
-            </h2>
-            <Button onClick={handleGoToAdmin} className="w-full bg-transparent" variant="outline">
-              관리자 설정 페이지
-            </Button>
+            </CardContent>
           </Card>
-        )}
 
-        {/* 기타 메뉴 */}
-        <Card className="p-4">
-          <h2 className="text-lg font-semibold mb-3">기타</h2>
-          <div className="space-y-2">
-            <Button variant="ghost" className="w-full justify-start text-gray-700">
-              출석 기록
-            </Button>
-            <Button variant="ghost" className="w-full justify-start text-gray-700">
-              게임 기록
-            </Button>
-            <Button
-              variant="ghost"
-              className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50"
-              onClick={handleLogout}
-            >
-              <LogOut className="h-4 w-4 mr-2" />
-              로그아웃
-            </Button>
-          </div>
-        </Card>
+          {/* Settings Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="h-5 w-5" />
+                설정
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {currentUser.admin_authority && (
+                <Button variant="outline" className="w-full justify-start bg-transparent" onClick={handleGoToAdmin}>
+                  <Settings className="h-4 w-4 mr-2" />
+                  관리자 페이지
+                </Button>
+              )}
+
+              <Button
+                variant="outline"
+                className="w-full justify-start text-red-600 hover:text-red-700 bg-transparent"
+                onClick={handleLogout}
+              >
+                <LogOut className="h-4 w-4 mr-2" />
+                로그아웃
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* Save Button */}
+      <div className="p-4 bg-white border-t">
+        <Button className="w-full" onClick={handleSave} disabled={saving}>
+          {saving ? "저장 중..." : "저장"}
+        </Button>
       </div>
     </div>
   )
 }
+
+// 동적 렌더링 강제
+export const dynamic = "force-dynamic"
