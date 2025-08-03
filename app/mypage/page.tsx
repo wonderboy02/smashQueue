@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { ArrowLeft, Settings, User, Edit, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -8,22 +8,22 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { User as UserType } from "../../types/database"
 import { updateUser } from "../../lib/supabase/queries"
+import { getUserSession, logout } from "../../lib/supabase/auth"
+import { useRouter } from "next/navigation"
 
-interface MyPageProps {
-  onBack: () => void
-  onGoToAdmin: () => void
-  onLogout: () => void
-  currentUser: UserType
-  onUpdateUser: (user: UserType) => void
-}
+// 이 페이지를 동적으로 렌더링하도록 설정 (정적 생성 방지)
+export const dynamic = "force-dynamic"
 
-export default function MyPage({ onBack, onGoToAdmin, onLogout, currentUser, onUpdateUser }: MyPageProps) {
+export default function MyPage() {
+  const router = useRouter()
+  const [currentUser, setCurrentUser] = useState<UserType | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
   const [isEditing, setIsEditing] = useState(false)
   const [loading, setLoading] = useState(false)
   const [editForm, setEditForm] = useState({
-    name: currentUser.name,
-    sex: currentUser.sex,
-    skill: currentUser.skill,
+    name: "",
+    sex: "M" as "M" | "F",
+    skill: "C" as "A" | "B" | "C",
   })
 
   const skillMapping = {
@@ -38,7 +38,41 @@ export default function MyPage({ onBack, onGoToAdmin, onLogout, currentUser, onU
     C: "초보",
   }
 
+  useEffect(() => {
+    const loadUserSession = async () => {
+      try {
+        const session = getUserSession()
+        if (!session) {
+          router.push("/auth/login")
+          return
+        }
+
+        // Convert session to User type (add password field)
+        const user: UserType = {
+          ...session,
+          password: "", // We don't store password in session
+        }
+
+        setCurrentUser(user)
+        setEditForm({
+          name: user.name,
+          sex: user.sex,
+          skill: user.skill,
+        })
+      } catch (error) {
+        console.error("Failed to load user session:", error)
+        router.push("/auth/login")
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadUserSession()
+  }, [router])
+
   const handleSave = async () => {
+    if (!currentUser) return
+
     try {
       setLoading(true)
       const updatedUser = await updateUser(currentUser.id, {
@@ -46,7 +80,7 @@ export default function MyPage({ onBack, onGoToAdmin, onLogout, currentUser, onU
         sex: editForm.sex,
         skill: editForm.skill,
       })
-      onUpdateUser(updatedUser)
+      setCurrentUser(updatedUser)
       setIsEditing(false)
     } catch (error) {
       console.error("사용자 정보 업데이트 오류:", error)
@@ -61,11 +95,48 @@ export default function MyPage({ onBack, onGoToAdmin, onLogout, currentUser, onU
     setEditForm((prev) => ({ ...prev, skill: mappedSkill }))
   }
 
+  const handleBack = () => {
+    router.push("/")
+  }
+
+  const handleGoToAdmin = () => {
+    router.push("/admin")
+  }
+
+  const handleLogout = () => {
+    logout()
+    router.push("/auth/login")
+  }
+
+  // 로딩 중일 때
+  if (isLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50 max-w-md mx-auto">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">로딩 중...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // 사용자 정보가 없을 때
+  if (!currentUser) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50 max-w-md mx-auto">
+        <div className="text-center">
+          <p className="text-gray-600 mb-4">사용자 정보를 불러올 수 없습니다.</p>
+          <Button onClick={() => router.push("/auth/login")}>로그인 페이지로</Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="h-screen flex flex-col bg-gray-50 max-w-md mx-auto">
       {/* Header */}
       <div className="bg-white shadow-sm border-b px-4 py-3 flex items-center">
-        <Button variant="ghost" size="icon" onClick={onBack} className="mr-2">
+        <Button variant="ghost" size="icon" onClick={handleBack} className="mr-2">
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <h1 className="text-xl font-bold text-gray-900">마이페이지</h1>
@@ -196,7 +267,7 @@ export default function MyPage({ onBack, onGoToAdmin, onLogout, currentUser, onU
               <Settings className="h-5 w-5 mr-2" />
               관리자 메뉴
             </h2>
-            <Button onClick={onGoToAdmin} className="w-full bg-transparent" variant="outline">
+            <Button onClick={handleGoToAdmin} className="w-full bg-transparent" variant="outline">
               관리자 설정 페이지
             </Button>
           </Card>
@@ -215,7 +286,7 @@ export default function MyPage({ onBack, onGoToAdmin, onLogout, currentUser, onU
             <Button
               variant="ghost"
               className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50"
-              onClick={onLogout}
+              onClick={handleLogout}
             >
               <LogOut className="h-4 w-4 mr-2" />
               로그아웃
