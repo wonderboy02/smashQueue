@@ -11,6 +11,9 @@ import { updateUser } from "../../lib/supabase/queries"
 import { getUserSession, logout } from "../../lib/supabase/auth"
 import { useRouter } from "next/navigation"
 
+// 이 페이지를 동적으로 렌더링하도록 설정
+export const dynamic = "force-dynamic"
+
 export default function MyPage() {
   const router = useRouter()
   const [currentUser, setCurrentUser] = useState<UserType | null>(null)
@@ -105,6 +108,7 @@ export default function MyPage() {
     router.push("/auth/login")
   }
 
+  // 로딩 중일 때
   if (isLoading) {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-50 max-w-md mx-auto">
@@ -116,6 +120,7 @@ export default function MyPage() {
     )
   }
 
+  // 사용자 정보가 없을 때
   if (!currentUser) {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-50 max-w-md mx-auto">
