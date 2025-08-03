@@ -2,79 +2,54 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Settings, LogOut, User } from "lucide-react"
+import { ArrowLeft, User, Settings, LogOut, Shield } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
-import type { User as UserType } from "../../types/database"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
 import { autoLogin, logout } from "../../lib/supabase/auth"
-import { updateUser } from "../../lib/supabase/queries"
+import type { User as UserType } from "../../types/database"
 
 export default function MyPage() {
   const router = useRouter()
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
   const [currentUser, setCurrentUser] = useState<UserType | null>(null)
-  const [formData, setFormData] = useState({
-    name: "",
-    sex: "M" as "M" | "F",
-    skill: "B" as "A" | "B" | "C",
-    is_attendance: false,
-  })
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    checkAuth()
-  }, [])
-
-  const checkAuth = async () => {
-    try {
-      setLoading(true)
-      const user = await autoLogin()
-      if (!user) {
-        router.push("/")
-        return
+    const loadUserData = async () => {
+      try {
+        const user = await autoLogin()
+        if (!user) {
+          router.push("/auth/login")
+          return
+        }
+        setCurrentUser(user)
+      } catch (error) {
+        console.error("Failed to load user data:", error)
+        router.push("/auth/login")
+      } finally {
+        setLoading(false)
       }
-      setCurrentUser(user)
-      setFormData({
-        name: user.name,
-        sex: user.sex,
-        skill: user.skill,
-        is_attendance: user.is_attendance,
-      })
-    } catch (error) {
-      console.error("Auth check error:", error)
-      router.push("/")
-    } finally {
-      setLoading(false)
     }
-  }
 
-  const handleSave = async () => {
-    if (!currentUser) return
+    loadUserData()
+  }, [router])
 
+  const handleLogout = async () => {
     try {
-      setSaving(true)
-      const updatedUser = await updateUser(currentUser.id, formData)
-      setCurrentUser(updatedUser)
-      alert("정보가 저장되었습니다.")
+      await logout()
+      router.push("/auth/login")
     } catch (error) {
-      console.error("Save error:", error)
-      alert("저장 중 오류가 발생했습니다.")
-    } finally {
-      setSaving(false)
+      console.error("Logout error:", error)
     }
-  }
-
-  const handleLogout = () => {
-    logout()
-    router.push("/")
   }
 
   const handleGoToAdmin = () => {
     router.push("/admin")
+  }
+
+  const handleBack = () => {
+    router.push("/")
   }
 
   if (loading) {
@@ -89,112 +64,98 @@ export default function MyPage() {
   }
 
   if (!currentUser) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-gray-50 max-w-md mx-auto">
-        <p className="text-gray-600">사용자 정보를 불러올 수 없습니다.</p>
-      </div>
-    )
+    return null
   }
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 max-w-md mx-auto">
       {/* Header */}
-      <div className="bg-white shadow-sm border-b px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => router.push("/")} className="h-8 w-8">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <h1 className="text-xl font-bold text-gray-900">내 정보</h1>
-        </div>
+      <div className="bg-white shadow-sm border-b px-4 py-3 flex items-center">
+        <Button variant="ghost" size="icon" onClick={handleBack} className="mr-2">
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <h1 className="text-xl font-bold text-gray-900">마이페이지</h1>
       </div>
 
       {/* Content */}
-      <div className="flex-1 p-4 overflow-y-auto">
-        <div className="space-y-4">
-          {/* Profile Card */}
+      <div className="flex-1 px-4 py-6 overflow-y-auto">
+        <div className="space-y-6">
+          {/* User Profile */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <User className="h-5 w-5" />
-                프로필 정보
+                프로필
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="name">이름</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="이름을 입력하세요"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="sex">성별</Label>
-                <Select
-                  value={formData.sex}
-                  onValueChange={(value: "M" | "F") => setFormData({ ...formData, sex: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="M">남성</SelectItem>
-                    <SelectItem value="F">여성</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label htmlFor="skill">실력</Label>
-                <Select
-                  value={formData.skill}
-                  onValueChange={(value: "A" | "B" | "C") => setFormData({ ...formData, skill: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="A">고수</SelectItem>
-                    <SelectItem value="B">중수</SelectItem>
-                    <SelectItem value="C">초보</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
               <div className="flex items-center justify-between">
-                <Label htmlFor="attendance">출석 상태</Label>
-                <Switch
-                  id="attendance"
-                  checked={formData.is_attendance}
-                  onCheckedChange={(checked) => setFormData({ ...formData, is_attendance: checked })}
-                />
+                <span className="text-sm text-gray-600">이름</span>
+                <span className="font-medium">{currentUser.name}</span>
               </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">성별</span>
+                <span className="font-medium">{currentUser.sex === "M" ? "남성" : "여성"}</span>
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">실력</span>
+                <Badge variant="outline">{currentUser.skill}급</Badge>
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">상태</span>
+                <Badge
+                  variant={
+                    currentUser.user_status === "ready"
+                      ? "default"
+                      : currentUser.user_status === "gaming"
+                        ? "secondary"
+                        : "outline"
+                  }
+                >
+                  {currentUser.user_status === "ready"
+                    ? "준비완료"
+                    : currentUser.user_status === "gaming"
+                      ? "게임중"
+                      : "대기중"}
+                </Badge>
+              </div>
+              {currentUser.is_guest && (
+                <>
+                  <Separator />
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">계정 유형</span>
+                    <Badge variant="outline">게스트</Badge>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 
-          {/* Settings Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Settings className="h-5 w-5" />
-                설정
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {currentUser.admin_authority && (
-                <Button variant="outline" className="w-full justify-start bg-transparent" onClick={handleGoToAdmin}>
+          {/* Admin Section */}
+          {currentUser.admin_authority && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Shield className="h-5 w-5" />
+                  관리자
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Button onClick={handleGoToAdmin} className="w-full bg-transparent" variant="outline">
                   <Settings className="h-4 w-4 mr-2" />
                   관리자 페이지
                 </Button>
-              )}
+              </CardContent>
+            </Card>
+          )}
 
-              <Button
-                variant="outline"
-                className="w-full justify-start text-red-600 hover:text-red-700 bg-transparent"
-                onClick={handleLogout}
-              >
+          {/* Actions */}
+          <Card>
+            <CardContent className="pt-6">
+              <Button onClick={handleLogout} variant="destructive" className="w-full">
                 <LogOut className="h-4 w-4 mr-2" />
                 로그아웃
               </Button>
@@ -202,16 +163,8 @@ export default function MyPage() {
           </Card>
         </div>
       </div>
-
-      {/* Save Button */}
-      <div className="p-4 bg-white border-t">
-        <Button className="w-full" onClick={handleSave} disabled={saving}>
-          {saving ? "저장 중..." : "저장"}
-        </Button>
-      </div>
     </div>
   )
 }
 
-// 동적 렌더링 강제
 export const dynamic = "force-dynamic"
