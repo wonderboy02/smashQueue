@@ -1,0 +1,162 @@
+export interface Database {
+  public: {
+    Tables: {
+      users: {
+        Row: {
+          id: number
+          username: string
+          password: string
+          name: string
+          sex: "M" | "F"
+          skill: "A" | "B" | "C"
+          is_guest: boolean
+          is_active: boolean
+          is_attendance: boolean
+          admin_authority: boolean
+          user_status: "ready" | "waiting" | "gaming"
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          username: string
+          password: string
+          name: string
+          sex: "M" | "F"
+          skill: "A" | "B" | "C"
+          is_guest?: boolean
+          is_active?: boolean
+          is_attendance?: boolean
+          admin_authority?: boolean
+          user_status?: "ready" | "waiting" | "gaming"
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          username?: string
+          password?: string
+          name?: string
+          sex?: "M" | "F"
+          skill?: "A" | "B" | "C"
+          is_guest?: boolean
+          is_active?: boolean
+          is_attendance?: boolean
+          admin_authority?: boolean
+          user_status?: "ready" | "waiting" | "gaming"
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      courts: {
+        Row: {
+          id: number
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      games: {
+        Row: {
+          id: number
+          court_id: number | null
+          start_time: string | null
+          end_time: string | null
+          status: "waiting" | "playing" | "finished"
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          court_id?: number | null
+          start_time?: string | null
+          end_time?: string | null
+          status?: "waiting" | "playing" | "finished"
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          court_id?: number | null
+          start_time?: string | null
+          end_time?: string | null
+          status?: "waiting" | "playing" | "finished"
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      user_game_relations: {
+        Row: {
+          user_id: number
+          game_id: number
+          created_at: string
+        }
+        Insert: {
+          user_id: number
+          game_id: number
+          created_at?: string
+        }
+        Update: {
+          user_id?: number
+          game_id?: number
+          created_at?: string
+        }
+      }
+      config: {
+        Row: {
+          id: number
+          show_sex: boolean
+          show_skill: boolean
+          enable_vs: boolean
+          enable_undo_game_by_user: boolean
+          enable_change_game_by_user: boolean
+          enable_add_user_auto: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          show_sex?: boolean
+          show_skill?: boolean
+          enable_vs?: boolean
+          enable_undo_game_by_user?: boolean
+          enable_change_game_by_user?: boolean
+          enable_add_user_auto?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          show_sex?: boolean
+          show_skill?: boolean
+          enable_undo_game_by_user?: boolean
+          enable_change_game_by_user?: boolean
+          enable_add_user_auto?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      [_ in never]: never
+    }
+    Enums: {
+      [_ in never]: never
+    }
+  }
+}
