@@ -10,10 +10,10 @@ import { updateConfig, updateCourt, updateUser, getAllUsers } from "../../lib/su
 
 interface AdminPageProps {
   onBack: () => void
-  config: Config
-  courts: Court[]
-  playingGames: Game[]
-  waitingGames: Game[]
+  config?: Config | null
+  courts?: Court[]
+  playingGames?: Game[]
+  waitingGames?: Game[]
   onConfigUpdate: (config: Config) => void
   onCourtsUpdate: (courts: Court[]) => void
 }
@@ -21,12 +21,27 @@ interface AdminPageProps {
 export default function AdminPage({
   onBack,
   config,
-  courts,
-  playingGames,
-  waitingGames,
+  courts = [],
+  playingGames = [],
+  waitingGames = [],
   onConfigUpdate,
   onCourtsUpdate,
 }: AdminPageProps) {
+  // config가 없으면 로딩 화면
+  if (!config) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50 max-w-md mx-auto">
+        <Card className="p-6">
+          <div className="text-center">
+            <h2 className="text-xl font-bold text-gray-900 mb-2">설정 정보를 불러오는 중...</h2>
+            <Button onClick={onBack} variant="outline">
+              돌아가기
+            </Button>
+          </div>
+        </Card>
+      </div>
+    )
+  }
   const [loading, setLoading] = useState<{ [key: string]: boolean }>({})
   const [allUsers, setAllUsers] = useState<User[]>([])
 

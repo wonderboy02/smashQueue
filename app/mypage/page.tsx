@@ -13,17 +13,33 @@ interface MyPageProps {
   onBack: () => void
   onGoToAdmin: () => void
   onLogout: () => void
-  currentUser: UserType
+  currentUser?: UserType | null
   onUpdateUser: (user: UserType) => void
 }
 
 export default function MyPage({ onBack, onGoToAdmin, onLogout, currentUser, onUpdateUser }: MyPageProps) {
+  // currentUser가 없으면 기본값 처리
+  if (!currentUser) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50 max-w-md mx-auto">
+        <Card className="p-6">
+          <div className="text-center">
+            <h2 className="text-xl font-bold text-gray-900 mb-2">사용자 정보를 불러오는 중...</h2>
+            <Button onClick={onBack} variant="outline">
+              돌아가기
+            </Button>
+          </div>
+        </Card>
+      </div>
+    )
+  }
+
   const [isEditing, setIsEditing] = useState(false)
   const [loading, setLoading] = useState(false)
   const [editForm, setEditForm] = useState({
-    name: currentUser.name,
-    sex: currentUser.sex,
-    skill: currentUser.skill,
+    name: currentUser.name || '',
+    sex: currentUser.sex || 'M',
+    skill: currentUser.skill || 'C',
   })
 
   const skillMapping = {
@@ -141,9 +157,9 @@ export default function MyPage({ onBack, onGoToAdmin, onLogout, currentUser, onU
                   onClick={() => {
                     setIsEditing(false)
                     setEditForm({
-                      name: currentUser.name,
-                      sex: currentUser.sex,
-                      skill: currentUser.skill,
+                      name: currentUser.name || '',
+                      sex: currentUser.sex || 'M',
+                      skill: currentUser.skill || 'C',
                     })
                   }}
                   className="flex-1"

@@ -9,10 +9,10 @@ import type { User, Game, Config } from "../../types/database"
 interface GameMakingProps {
   onBack: () => void
   onAddToQueue: (users: User[], team1?: User[], team2?: User[]) => void
-  users: User[]
-  config: Config
-  playingGames: Game[]
-  waitingGames: Game[]
+  users?: User[]
+  config?: Config | null
+  playingGames?: Game[]
+  waitingGames?: Game[]
   getUserDisplayName: (user: User) => string
   getUserTokenStyle: (user: User) => string
 }
@@ -26,10 +26,10 @@ const skillMapping = {
 export default function GameMaking({
   onBack,
   onAddToQueue,
-  users,
+  users = [],
   config,
-  playingGames,
-  waitingGames,
+  playingGames = [],
+  waitingGames = [],
   getUserDisplayName: getUserDisplayNameProp,
   getUserTokenStyle,
 }: GameMakingProps) {
@@ -285,9 +285,8 @@ export default function GameMaking({
       {/* Bottom Button */}
       <div className="p-4 bg-white border-t">
         <Button
-          className={`w-full py-3 text-lg font-medium ${
-            canAddToQueue ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-gray-300 text-gray-500 cursor-not-allowed"
-          }`}
+          className={`w-full py-3 text-lg font-medium ${canAddToQueue ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-gray-300 text-gray-500 cursor-not-allowed"
+            }`}
           onClick={handleAddToQueue}
           disabled={!canAddToQueue}
         >
