@@ -17,6 +17,9 @@ interface QueueCardProps {
   onEdit?: (game: Game) => void
   onDelete?: (game: Game) => void
   onDelay?: (game: Game) => void
+  countdown?: number // 카운트다운 시간
+  isCountdownActive?: boolean // 카운트다운 활성 여부
+  assignedCourtId?: number // 배정된 코트 ID
 }
 
 export default function QueueCard({
@@ -29,15 +32,39 @@ export default function QueueCard({
   onEdit,
   onDelete,
   onDelay,
+  countdown,
+  isCountdownActive,
+  assignedCourtId,
 }: QueueCardProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
 
   const isAdmin = currentUser?.admin_authority || false
 
   return (
-    <Card className="p-3 bg-white">
+    <Card className={`p-3 transition-all duration-300 ${
+      isCountdownActive 
+        ? "bg-gradient-to-r from-orange-50 to-yellow-50 border-2 border-orange-400 shadow-lg scale-105" 
+        : "bg-white hover:shadow-md"
+    }`}>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-medium text-gray-600">{index + 1}번째 대기</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-gray-600">{index + 1}번째 대기</span>
+          {assignedCourtId && (
+            <div className="flex items-center gap-1 bg-blue-100 px-2 py-1 rounded-full">
+              <span className="text-xs font-bold text-blue-700">
+                코트 {assignedCourtId} 예정
+              </span>
+            </div>
+          )}
+          {isCountdownActive && countdown !== undefined && (
+            <div className="flex items-center gap-1 bg-gradient-to-r from-orange-100 to-red-100 px-3 py-1.5 rounded-full border border-orange-300 shadow-sm">
+              <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+              <span className="text-sm font-bold text-orange-800">
+                {countdown === 0 ? "🎾 시작!" : `${countdown}초`}
+              </span>
+            </div>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-400">
             {new Date(game.created_at).toLocaleTimeString("ko-KR", {

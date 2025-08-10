@@ -40,6 +40,8 @@ export interface Config {
   enable_undo_game_by_user: boolean
   enable_change_game_by_user: boolean
   enable_add_user_auto: boolean
+  warning_time_minutes: number // n분 후 주황색 (기본값: 20)
+  danger_time_minutes: number  // m분 후 빨간색 (기본값: 30)
   created_at: string
   updated_at: string
 }

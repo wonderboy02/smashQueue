@@ -1,12 +1,14 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Settings, Users } from "lucide-react"
+import { ArrowLeft, Settings, Users, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import type { User, Game, Court, Config } from "../../types/database"
-import { updateConfig, updateCourt, updateUser, getAllUsers } from "../../lib/supabase/queries"
+import { updateConfig, updateCourt, updateUser, getAllUsers, testRealtimeConnection } from "../../lib/supabase/queries"
 
 interface AdminPageProps {
   onBack: () => void
@@ -63,27 +65,50 @@ export default function AdminPage({
   const guestUsers = allUsers.filter((user) => user.is_guest && user.is_active)
   const pendingUsers = allUsers.filter((user) => !user.is_active)
 
-  const handleConfigUpdate = async (key: keyof Config, value: boolean) => {
+  const handleConfigUpdate = async (key: keyof Config, value: boolean | number) => {
+    // Optimistic update - 즉시 UI 업데이트
+    const originalConfig = { ...config }
+    const optimisticConfig = { ...config, [key]: value }
+    onConfigUpdate(optimisticConfig)
+    
     try {
       setLoading((prev) => ({ ...prev, [key]: true }))
       const updatedConfig = await updateConfig({ [key]: value })
       onConfigUpdate(updatedConfig)
     } catch (error) {
       console.error("설정 업데이트 오류:", error)
+      // 실패 시 원상복구
+      onConfigUpdate(originalConfig)
       alert("설정 업데이트 중 오류가 발생했습니다.")
     } finally {
       setLoading((prev) => ({ ...prev, [key]: false }))
     }
   }
 
+  const handleTimeUpdate = async (key: 'warning_time_minutes' | 'danger_time_minutes', value: string) => {
+    const numValue = parseInt(value)
+    if (isNaN(numValue) || numValue < 1) return
+    
+    await handleConfigUpdate(key, numValue)
+  }
+
   const handleCourtUpdate = async (courtId: number, isActive: boolean) => {
+    // Optimistic update - 즉시 UI 업데이트
+    const originalCourts = [...courts]
+    const optimisticCourts = courts.map((court) => 
+      court.id === courtId ? { ...court, is_active: isActive } : court
+    )
+    onCourtsUpdate(optimisticCourts)
+    
     try {
       setLoading((prev) => ({ ...prev, [`court_${courtId}`]: true }))
       const updatedCourt = await updateCourt(courtId, isActive)
-      const updatedCourts = courts.map((court) => (court.id === courtId ? updatedCourt : court))
-      onCourtsUpdate(updatedCourts)
+      const finalCourts = courts.map((court) => (court.id === courtId ? updatedCourt : court))
+      onCourtsUpdate(finalCourts)
     } catch (error) {
       console.error("코트 업데이트 오류:", error)
+      // 실패 시 원상복구
+      onCourtsUpdate(originalCourts)
       alert("코트 설정 업데이트 중 오류가 발생했습니다.")
     } finally {
       setLoading((prev) => ({ ...prev, [`court_${courtId}`]: false }))
@@ -91,17 +116,24 @@ export default function AdminPage({
   }
 
   const handleUserApproval = async (userId: number, approve: boolean) => {
+    // Optimistic update - 즉시 UI 업데이트
+    const originalUsers = [...allUsers]
+    const updateData = approve ? { is_active: true, is_attendance: true } : { is_active: false }
+    const optimisticUsers = allUsers.map((user) => 
+      user.id === userId ? { ...user, ...updateData } : user
+    )
+    setAllUsers(optimisticUsers)
+    
     try {
       setLoading((prev) => ({ ...prev, [`user_${userId}`]: true }))
 
-      // 승인할 때는 is_active와 is_attendance를 모두 true로 설정
-      const updateData = approve ? { is_active: true, is_attendance: true } : { is_active: false }
-
       const updatedUser = await updateUser(userId, updateData)
-      const updatedUsers = allUsers.map((user) => (user.id === userId ? updatedUser : user))
-      setAllUsers(updatedUsers)
+      const finalUsers = allUsers.map((user) => (user.id === userId ? updatedUser : user))
+      setAllUsers(finalUsers)
     } catch (error) {
       console.error("사용자 승인 오류:", error)
+      // 실패 시 원상복구
+      setAllUsers(originalUsers)
       alert("사용자 승인 중 오류가 발생했습니다.")
     } finally {
       setLoading((prev) => ({ ...prev, [`user_${userId}`]: false }))
@@ -227,6 +259,51 @@ export default function AdminPage({
           </div>
         </Card>
 
+        {/* 게임 시간 설정 */}
+        <Card className="p-4">
+          <h2 className="text-lg font-semibold mb-3 flex items-center">
+            <Clock className="h-5 w-5 mr-2" />
+            게임 시간 설정
+          </h2>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="warning-time" className="text-sm font-medium">
+                주의 시간 (분)
+              </Label>
+              <div className="text-xs text-gray-600 mb-2">
+                이 시간이 지나면 코트가 주황색으로 변합니다
+              </div>
+              <Input
+                id="warning-time"
+                type="number"
+                min="1"
+                max="120"
+                value={config.warning_time_minutes || 20}
+                onChange={(e) => handleTimeUpdate('warning_time_minutes', e.target.value)}
+                className="w-20"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="danger-time" className="text-sm font-medium">
+                위험 시간 (분)
+              </Label>
+              <div className="text-xs text-gray-600 mb-2">
+                이 시간이 지나면 코트가 빨간색으로 변합니다
+              </div>
+              <Input
+                id="danger-time"
+                type="number"
+                min="1"
+                max="180"
+                value={config.danger_time_minutes || 30}
+                onChange={(e) => handleTimeUpdate('danger_time_minutes', e.target.value)}
+                className="w-20"
+              />
+            </div>
+          </div>
+        </Card>
+
         {/* 코트 관리 */}
         <Card className="p-4">
           <h2 className="text-lg font-semibold mb-3">코트 관리</h2>
@@ -241,6 +318,32 @@ export default function AdminPage({
                 />
               </div>
             ))}
+          </div>
+        </Card>
+
+        {/* 실시간 연결 진단 */}
+        <Card className="p-4">
+          <h2 className="text-lg font-semibold mb-3 flex items-center">
+            <Settings className="h-5 w-5 mr-2" />
+            실시간 연결 진단
+          </h2>
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600">
+              실시간 연결에 문제가 있다면 아래 버튼으로 진단해보세요.
+            </p>
+            <Button
+              variant="outline"
+              onClick={() => {
+                console.log('🔧 Starting realtime connection test...')
+                testRealtimeConnection()
+              }}
+              className="w-full"
+            >
+              실시간 연결 테스트
+            </Button>
+            <div className="text-xs text-gray-500">
+              테스트 결과는 브라우저 개발자 도구 콘솔에서 확인하세요.
+            </div>
           </div>
         </Card>
 

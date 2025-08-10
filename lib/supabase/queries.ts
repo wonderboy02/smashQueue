@@ -1,4 +1,4 @@
-import { supabase } from "./client"
+import { supabase, supabaseRealtime } from "./client"
 import type { Database } from "./database.types"
 
 type User = Database["public"]["Tables"]["users"]["Row"]
@@ -16,6 +16,61 @@ const checkSupabaseClient = () => {
 
 // 자동 시작 중인지 확인하는 플래그 (메모리에 저장)
 let isAutoStarting = false
+
+// Real-time connection diagnostic function
+export const testRealtimeConnection = async () => {
+  const client = checkSupabaseClient()
+  
+  console.log('🔧 Testing single channel realtime connection...')
+  
+  // Check current auth status
+  const { data: { session } } = await client.auth.getSession()
+  console.log('🔐 Current session status:', session ? 'authenticated' : 'anonymous')
+  
+  // Test basic query access
+  try {
+    const { data: games, error: gamesError } = await client
+      .from('games')
+      .select('id')
+      .limit(1)
+    
+    if (gamesError) {
+      console.error('❌ Games table access error:', gamesError)
+    } else {
+      console.log('✅ Games table access working, found', games?.length || 0, 'games')
+    }
+  } catch (err) {
+    console.error('❌ Games table query failed:', err)
+  }
+  
+  // Test single channel subscription (same pattern as app)
+  console.log('🔧 Testing single channel subscription...')
+  console.log('📡 Should NOT see SUBSCRIBED → CLOSED cycles!')
+  
+  const testChannel = client
+    .channel('test-single-channel')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, (payload) => {
+      console.log('✅ Test event received:', payload.eventType)
+    })
+    .subscribe((status, err) => {
+      console.log(`🔌 Test single channel status: ${status}`)
+      if (err) {
+        console.error('❌ Test subscription error:', JSON.stringify(err, null, 2))
+      }
+      
+      if (status === 'SUBSCRIBED') {
+        console.log('✅ Test subscription STABLE - no more CLOSED events expected!')
+      } else if (status === 'CLOSED') {
+        console.log('❌ Test subscription closed - this should not happen repeatedly!')
+      }
+    })
+  
+  // Clean up after 10 seconds
+  setTimeout(() => {
+    client.removeChannel(testChannel)
+    console.log('🧹 Test channel removed cleanly')
+  }, 10000)
+}
 
 // User status update functions
 export const updateUserStatus = async (userId: number, status: "ready" | "waiting" | "gaming") => {
@@ -190,7 +245,7 @@ export const updateUser = async (id: number, updates: Partial<User>) => {
   return data
 }
 
-// Game queries with improved N:N relationship handling
+// 모든 게임 조회 (최적화된 JOIN)
 export const getGames = async () => {
   try {
     const client = checkSupabaseClient()
@@ -198,8 +253,18 @@ export const getGames = async () => {
       .from("games")
       .select(`
         *,
-        user_game_relations!inner (
-          users (*)
+        user_game_relations (
+          users (
+            id,
+            name,
+            sex,
+            skill,
+            is_guest,
+            is_active,
+            is_attendance,
+            user_status,
+            admin_authority
+          )
         )
       `)
       .order("created_at", { ascending: false })
@@ -209,8 +274,13 @@ export const getGames = async () => {
       throw error
     }
 
-    console.log("Raw games data:", data)
-    return data || []
+    // 데이터 변환
+    const gamesWithUsers = (data || []).map((game) => ({
+      ...game,
+      users: game.user_game_relations?.map((rel: any) => rel.users).filter(Boolean) || []
+    }))
+
+    return gamesWithUsers
   } catch (error) {
     console.error("getGames catch error:", error)
     return []
@@ -220,46 +290,44 @@ export const getGames = async () => {
 export const getGamesByStatus = async (status: "waiting" | "playing" | "finished") => {
   try {
     const client = checkSupabaseClient()
-    // 먼저 해당 상태의 게임들을 가져옴 (created_at 기준 오름차순 정렬 - 먼저 만든 게임이 앞에)
-    const { data: games, error: gamesError } = await client
+    
+    // 단일 JOIN 쿼리로 N+1 문제 해결
+    const { data, error } = await client
       .from("games")
-      .select("*")
+      .select(`
+        *,
+        user_game_relations (
+          users (
+            id,
+            name,
+            sex,
+            skill,
+            is_guest,
+            is_active,
+            is_attendance,
+            user_status,
+            admin_authority
+          )
+        )
+      `)
       .eq("status", status)
-      .order("created_at", { ascending: true }) // 대기열은 먼저 만든 순서대로
+      .order("created_at", { ascending: true })
 
-    if (gamesError) {
-      console.error("getGamesByStatus games error:", gamesError)
-      throw gamesError
+    if (error) {
+      console.error(`getGamesByStatus error (${status}):`, error)
+      throw error
     }
 
-    console.log(`Games with status ${status}:`, games)
+    // 데이터 변환: user_game_relations을 users 배열로 변환
+    const gamesWithUsers = (data || []).map((game) => ({
+      ...game,
+      users: game.user_game_relations?.map((rel: any) => rel.users).filter(Boolean) || []
+    }))
 
-    // 각 게임에 대해 사용자 정보를 별도로 가져옴
-    const gamesWithUsers = await Promise.all(
-      games.map(async (game) => {
-        const { data: relations, error: relationsError } = await client
-          .from("user_game_relations")
-          .select(`
-            users (*)
-          `)
-          .eq("game_id", game.id)
-
-        if (relationsError) {
-          console.error("getGamesByStatus relations error:", relationsError)
-          return { ...game, users: [] }
-        }
-
-        console.log(`Relations for game ${game.id}:`, relations)
-
-        const users = relations?.map((rel: any) => rel.users).filter(Boolean) || []
-        return { ...game, users }
-      }),
-    )
-
-    console.log(`Final games with users (${status}):`, gamesWithUsers)
+    console.log(`Games loaded (${status}): ${gamesWithUsers.length} games`)
     return gamesWithUsers
   } catch (error) {
-    console.error("getGamesByStatus catch error:", error)
+    console.error(`getGamesByStatus catch error (${status}):`, error)
     return []
   }
 }
@@ -268,6 +336,8 @@ export const getGamesByStatus = async (status: "waiting" | "playing" | "finished
 export const getAvailableCourt = async () => {
   try {
     const client = checkSupabaseClient()
+    console.log("🔍 Checking for available courts...")
+    
     // 활성화된 코트들 가져오기
     const { data: courts, error: courtsError } = await client
       .from("courts")
@@ -295,9 +365,9 @@ export const getAvailableCourt = async () => {
     const occupiedCourtIds = new Set(playingGames.map((game) => game.court_id))
     const availableCourt = courts.find((court) => !occupiedCourtIds.has(court.id))
 
-    console.log("Available courts:", courts)
-    console.log("Occupied court IDs:", Array.from(occupiedCourtIds))
-    console.log("Available court:", availableCourt)
+    console.log("🏟️ All active courts:", courts.map(c => c.id))
+    console.log("🎮 Occupied court IDs:", Array.from(occupiedCourtIds))
+    console.log("✅ Available court:", availableCourt?.id || "none")
 
     return availableCourt || null
   } catch (error) {
@@ -321,13 +391,14 @@ export const createGame = async (gameData: {
     let finalStatus = gameData.status
     let finalCourtId = gameData.court_id || null
     let startTime = null
+    let countdownTriggered = false
 
-    // 빈 코트가 있고 대기 상태로 게임을 만들려고 하면 바로 플레이 상태로 변경
+    // 빈 코트가 있고 대기 상태로 게임을 만들려고 하면 일단 waiting으로 생성하고 카운트다운 트리거
     if (availableCourt && gameData.status === "waiting") {
-      finalStatus = "playing"
+      finalStatus = "waiting" // DB에서는 waiting 상태로 유지
       finalCourtId = availableCourt.id
-      startTime = new Date().toISOString()
-      console.log(`Available court found (${availableCourt.id}), starting game immediately`)
+      countdownTriggered = true
+      console.log(`Available court found (${availableCourt.id}), starting 5-second countdown`)
     }
 
     // Create game
@@ -372,7 +443,20 @@ export const createGame = async (gameData: {
     const userStatus = finalStatus === "playing" ? "gaming" : "waiting"
     await updateMultipleUserStatus(gameData.userIds, userStatus)
 
-    return { ...game, autoStarted: finalStatus === "playing" && gameData.status === "waiting" }
+    console.log("🎮 Game created:", {
+      gameId: game.id,
+      finalStatus,
+      countdownTriggered,
+      finalCourtId,
+      originalStatus: gameData.status
+    })
+    
+    return { 
+      ...game, 
+      autoStarted: finalStatus === "playing" && gameData.status === "waiting",
+      countdownTriggered: countdownTriggered,
+      courtId: finalCourtId
+    }
   } catch (error) {
     console.error("createGame catch error:", error)
     throw error
@@ -406,13 +490,12 @@ export const moveNextGameToCourt = async (courtId: number) => {
     const nextGame = waitingGames[0]
     console.log(`🎮 Found waiting game ${nextGame.id}, moving to court ${courtId}`)
 
-    // 게임을 플레이 상태로 변경 (한 번에 하나씩만 처리)
+    // 먼저 코트 배정만 하고 카운트다운을 위해 waiting 상태 유지
     const { data: updatedGame, error: updateError } = await client
       .from("games")
       .update({
-        status: "playing",
         court_id: courtId,
-        start_time: new Date().toISOString(),
+        // status는 여전히 waiting으로 유지 - 카운트다운 후에 playing으로 변경
       })
       .eq("id", nextGame.id)
       .eq("status", "waiting") // 여전히 waiting 상태인 경우에만 업데이트
@@ -434,20 +517,38 @@ export const moveNextGameToCourt = async (courtId: number) => {
       return null
     }
 
-    // 해당 게임의 사용자들을 gaming 상태로 변경
+    // 해당 게임의 사용자 정보 가져오기 (상태 변경은 카운트다운 후에)
     const { data: relations, error: relationsError } = await client
       .from("user_game_relations")
-      .select("user_id")
+      .select(`
+        user_id,
+        users (
+          id,
+          name,
+          sex,
+          skill,
+          is_guest,
+          is_active,
+          is_attendance,
+          user_status,
+          admin_authority
+        )
+      `)
       .eq("game_id", nextGame.id)
 
+    let gameUsers = []
     if (!relationsError && relations) {
-      const userIds = relations.map((rel) => rel.user_id)
-      await updateMultipleUserStatus(userIds, "gaming")
-      console.log(`✅ Updated ${userIds.length} users to gaming status`)
+      gameUsers = relations.map((rel: any) => rel.users).filter(Boolean)
+      // 사용자 상태는 카운트다운이 끝난 후에 gaming으로 변경
     }
 
-    console.log(`✅ Game ${nextGame.id} successfully moved to court ${courtId}`)
-    return updatedGame
+    console.log(`✅ Game ${nextGame.id} assigned to court ${courtId}, waiting for countdown`)
+    return {
+      ...updatedGame,
+      users: gameUsers,
+      courtAssigned: true,
+      needsCountdown: true // 카운트다운이 필요함을 표시
+    }
   } catch (error) {
     console.error("moveNextGameToCourt catch error:", error)
     throw error
@@ -456,7 +557,7 @@ export const moveNextGameToCourt = async (courtId: number) => {
 
 export const updateGameStatus = async (
   gameId: number,
-  status: "waiting" | "playing" | "finished",
+  status: "playing" | "finished",
   courtId?: number,
 ) => {
   try {
@@ -485,13 +586,6 @@ export const updateGameStatus = async (
       // 사용자들을 gaming 상태로 변경
       console.log(`Setting users to gaming status:`, userIds)
       await updateMultipleUserStatus(userIds, "gaming")
-    } else if (status === "waiting") {
-      // 대기열로 돌릴 때는 코트와 시작시간을 초기화
-      updates.court_id = null
-      updates.start_time = null
-      // 사용자들을 waiting 상태로 변경
-      console.log(`Setting users to waiting status:`, userIds)
-      await updateMultipleUserStatus(userIds, "waiting")
     } else if (status === "finished") {
       updates.end_time = new Date().toISOString()
       // 사용자들을 ready 상태로 변경
@@ -500,14 +594,13 @@ export const updateGameStatus = async (
 
       // 게임이 끝나면 해당 코트에 대기열에서 다음 게임을 이동 (하나씩만)
       if (courtId) {
-        setTimeout(async () => {
-          try {
-            console.log(`🔄 Game finished on court ${courtId}, checking for next game...`)
-            await moveNextGameToCourt(courtId)
-          } catch (error) {
-            console.error("Error moving next game to court:", error)
-          }
-        }, 1000) // 1초 후에 다음 게임 이동
+        // 즉시 다음 게임 이동
+        try {
+          console.log(`🔄 Game finished on court ${courtId}, checking for next game...`)
+          await moveNextGameToCourt(courtId)
+        } catch (error) {
+          console.error("Error moving next game to court:", error)
+        }
       }
     }
 
@@ -619,6 +712,13 @@ export const getCourts = async () => {
 export const updateCourt = async (id: number, isActive: boolean) => {
   try {
     const client = checkSupabaseClient()
+    
+    // 코트를 비활성화할 때, 현재 진행 중인 게임은 그대로 두고
+    // 새로운 게임 배정만 막도록 처리
+    if (!isActive) {
+      console.log(`🚫 Court ${id} being deactivated - current games will continue, new games will not be assigned`)
+    }
+    
     const { data, error } = await client.from("courts").update({ is_active: isActive }).eq("id", id).select().single()
 
     if (error) {
@@ -651,6 +751,8 @@ export const getConfig = async () => {
             enable_undo_game_by_user: false,
             enable_change_game_by_user: false,
             enable_add_user_auto: false,
+            warning_time_minutes: 20,
+            danger_time_minutes: 30,
           })
           .select()
           .single()
@@ -687,6 +789,8 @@ export const updateConfig = async (updates: Partial<Config>) => {
           enable_undo_game_by_user: false,
           enable_change_game_by_user: false,
           enable_add_user_auto: false,
+          warning_time_minutes: 20,
+          danger_time_minutes: 30,
           ...updates,
         })
         .select()
@@ -712,20 +816,5 @@ export const updateConfig = async (updates: Partial<Config>) => {
   }
 }
 
-// Real-time subscriptions
-export const subscribeToGames = (callback: (payload: any) => void) => {
-  const client = checkSupabaseClient()
-  return client
-    .channel("games")
-    .on("postgres_changes", { event: "*", schema: "public", table: "games" }, callback)
-    .on("postgres_changes", { event: "*", schema: "public", table: "user_game_relations" }, callback)
-    .subscribe()
-}
-
-export const subscribeToUsers = (callback: (payload: any) => void) => {
-  const client = checkSupabaseClient()
-  return client
-    .channel("users")
-    .on("postgres_changes", { event: "*", schema: "public", table: "users" }, callback)
-    .subscribe()
-}
+// 더 이상 개별 구독 함수는 사용하지 않음 
+// useRealtime 훅에서 단일 채널로 통합 관리
